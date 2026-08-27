@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String,ForeignKey
 
 from app.db import Base
 
@@ -16,4 +16,9 @@ class Player(Base):
         nullable=False,
         index=True,
         default=lambda: str(uuid.uuid4()),
+    )
+    room_id = Column(
+        Integer,
+        ForeignKey("rooms.id"),
+        nullable=True,
     )
