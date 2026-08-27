@@ -38,7 +38,30 @@ story_guessing_game_backend/
 DATABASE_URL=postgresql+psycopg://postgres:1234@localhost:5432/story-game
 ```
 
-3. Install dependencies:
+3. Create a virtual environment:
+
+**Windows PowerShell:**
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+**Windows Command Prompt:**
+
+```cmd
+python -m venv .venv
+.venv\Scripts\activate.bat
+```
+
+**macOS/Linux:**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+4. Install dependencies:
 
 ```bash
 uv sync
