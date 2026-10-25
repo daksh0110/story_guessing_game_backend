@@ -1,0 +1,54 @@
+services:
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    depends_on:
+      init-db:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:${POSTGRES_PASSWORD}@db:5432/story_guessing_game
+
+  db:
+    image: postgres:17
+    container_name: story-guessing-game
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: story_guessing_game
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  init-db:
+    image: postgres:17
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        psql -h db -U postgres -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'story_guessing_game'" | grep -q 1 ||
+        psql -h db -U postgres -d postgres -c "CREATE DATABASE story_guessing_game"
+  adminer:
+    image: adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

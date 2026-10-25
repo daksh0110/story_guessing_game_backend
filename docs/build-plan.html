@@ -1,0 +1,746 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>StoryFrames Backend: Step-by-Step Connection Plan</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1f2430; font-size: 10.5pt; line-height: 1.5; }
+  h1 { font-size: 22pt; margin: 0 0 4px; }
+  .subtitle { color: #6b7280; margin-bottom: 18px; }
+  h2 { font-size: 15pt; color: #e0502f; border-bottom: 2px solid #ffd166; padding-bottom: 3px; margin-top: 26px; page-break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 14px 0 4px; page-break-after: avoid; }
+  p, li { margin: 4px 0; }
+  ul, ol { margin: 4px 0 8px 20px; padding: 0; }
+  .step { border-left: 4px solid #2ec4b6; background: #f6fbfa; padding: 8px 12px; margin: 10px 0; page-break-inside: avoid; }
+  .done { background: #fff8ec; border-left: 3px solid #ff6b4a; padding: 6px 10px; margin-top: 6px; }
+  .label { font-weight: 700; font-size: 9.5pt; text-transform: uppercase; letter-spacing: .05em; color: #e0502f; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 12px; font-size: 9.5pt; }
+  tr { page-break-inside: avoid; }
+  th, td { border: 1px solid #d6d9e0; padding: 5px 7px; text-align: left; vertical-align: top; }
+  th { background: #1f2430; color: #fff; }
+  code { font-family: Consolas, monospace; background: #f1f2f5; padding: 0 3px; border-radius: 3px; font-size: 9.5pt; }
+  .note { background: #fff3c4; padding: 6px 10px; border-radius: 4px; margin: 8px 0; }
+</style>
+</head>
+<body>
+
+<h1>StoryFrames Backend: Step-by-Step Connection Plan</h1>
+<div class="subtitle">Frontend (Vite + React) &harr; Socket.IO &harr; FastAPI &harr; PostgreSQL. You write the code and the schema. This document says what to do, in what order, and how to know a step is finished.</div>
+
+<h2>How to use this plan</h2>
+<ul>
+  <li>Work in order. Do not start a step until the previous "Done when" check passes.</li>
+  <li>Every step ends with a <b>Done when</b> check. If it fails, fix it before moving on.</li>
+  <li>Keep the frontend running while you work. Each socket step ends with a real test in the browser.</li>
+</ul>
+
+<h3>Current setup (from your files)</h3>
+<table>
+  <tr><th>Piece</th><th>What it is today</th><th>Address</th></tr>
+  <tr><td>Frontend</td><td>Vite 8, React 19, socket.io-client 4.8 (not connected yet)</td><td>http://localhost:5173</td></tr>
+  <tr><td>Backend</td><td>FastAPI with python-socketio 5.17 mounted as an ASGI app</td><td>http://localhost:8000</td></tr>
+  <tr><td>Database</td><td>PostgreSQL 17 in Docker (compose service <code>db</code>)</td><td>localhost:5432</td></tr>
+  <tr><td>ORM / migrations</td><td>SQLAlchemy 2.0.54, Alembic 1.20.0 (no models yet)</td><td>&mdash;</td></tr>
+</table>
+
+<div class="note"><b>Compatibility:</b> socket.io-client 4.x and python-socketio 5.x speak the same protocol and connect without extra setup. Do not change either side's major version during this plan.</div>
+
+<h2>Contents</h2>
+<ol>
+  <li>Part 1: Environment and configuration</li>
+  <li>Part 2: Backend boots and answers over HTTP and Socket.IO</li>
+  <li>Part 3: Database connection and migrations</li>
+  <li>Part 4: Frontend connects to backend (first socket handshake)</li>
+  <li>Part 5: Schema and architecture decisions (your design work)</li>
+  <li>Part 5 (continued): Team and match model (step 5.6)</li>
+  <li>Part 6: Socket events, one at a time</li>
+  <li>Part 7: Replace the frontend's local stand-in with the real socket client</li>
+  <li>Part 8: AI story and scene generation</li>
+  <li>Part 9: Guessing, reveal and scoring</li>
+  <li>Part 10: Round switching and match end</li>
+  <li>Part 11: Later phases</li>
+  <li>Appendix A: Issues found in the current files</li>
+  <li>Appendix B: Checkpoint summary</li>
+</ol>
+
+<!-- PART 1 -->
+<h2>Part 1: Environment and configuration</h2>
+<p>Goal: the backend and database start reliably on your machine, with one source of truth for the database URL.</p>
+
+<div class="step">
+  <h3>Step 1.1: Decide where each piece runs</h3>
+  <ul>
+    <li><b>Recommended for development:</b> PostgreSQL in Docker, backend in a local virtual environment (<code>venv</code>). Reloads are faster and debugging is easier.</li>
+    <li>Keep the <code>backend</code> service in <code>docker-compose.yml</code> for later, when you deploy.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>You can say, in one sentence each, where the backend, the database, and the frontend run.</div>
+</div>
+
+<div class="step">
+  <h3>Step 1.2: Clean up the environment files</h3>
+  <ul>
+    <li>Confirm <code>.env</code> is in <code>.gitignore</code>, so secrets are never committed.</li>
+    <li>Keep <code>.env.example</code> as the template: every variable name with a placeholder value, no real secret.</li>
+    <li>Make sure every variable the code reads appears in <code>.env.example</code>.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/><code>git status</code> shows <code>.env</code> as ignored, and a new developer could copy <code>.env.example</code> and fill it in.</div>
+</div>
+
+<div class="step">
+  <h3>Step 1.3: Give the database URL two correct forms</h3>
+  <ul>
+    <li>From your Windows machine (backend in venv): host <code>localhost</code>, port <code>5432</code>.</li>
+    <li>From inside Docker (backend container): host <code>db</code> (the compose service name), port <code>5432</code>. Inside a container, <code>localhost</code> means the container itself, so it fails.</li>
+    <li>Use the driver that matches the installed package. <code>psycopg2-binary</code> is in <code>requirements.txt</code>, so the scheme is <code>postgresql+psycopg2://</code>.</li>
+    <li>Write both forms in <code>.env.example</code> as comments so they are not mixed up.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>You can state which URL to use in each place, and it matches the driver in <code>requirements.txt</code>.</div>
+</div>
+
+<div class="step">
+  <h3>Step 1.4: Pass the database URL into the backend container</h3>
+  <ul>
+    <li>The <code>backend</code> service in <code>docker-compose.yml</code> has no environment variables. Give it the container form of the URL, using an <code>environment</code> entry or an <code>env_file</code> entry.</li>
+    <li>Keep the password in one place and reference it, rather than writing it twice.</li>
+    <li><code>POSTGRES_PASSWORD</code> on the <code>db</code> service must match the password in the URL.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/><code>docker compose config</code> shows the <code>DATABASE_URL</code> value on the <code>backend</code> service.</div>
+</div>
+
+<div class="step">
+  <h3>Step 1.5: Make the settings loader independent of the working folder</h3>
+  <ul>
+    <li><code>app/db/database.py</code> reads <code>.env</code> relative to the current folder, so starting from another folder can fail.</li>
+    <li>Point the settings loader at the backend root, not the current directory.</li>
+    <li>Move the settings class to the current pydantic-settings style (<code>model_config</code>) to remove the deprecation warning from <code>class Config</code>.</li>
+    <li>Make a missing <code>DATABASE_URL</code> produce a readable error, not a stack trace from deep inside SQLAlchemy.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>Starting from the backend root and from one folder up gives the same settings, and a missing <code>DATABASE_URL</code> gives a clear message.</div>
+</div>
+
+<div class="step">
+  <h3>Step 1.6: Make Python and the dependencies match Docker</h3>
+  <ul>
+    <li>The Dockerfile uses Python 3.12. Create the venv with Python 3.12 so local and container behavior match.</li>
+    <li><code>requirements.txt</code> looks like it is saved as UTF-16. Re-save it as UTF-8 (Notepad: <i>Save as</i>, encoding UTF-8).</li>
+    <li>Create a fresh venv, install from <code>requirements.txt</code>, and confirm there are no errors.</li>
+    <li>Keep the <code>venv</code> folder out of git (check <code>.gitignore</code>).</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>A brand-new venv installs cleanly, <code>python --version</code> shows 3.12.x, and <code>pip freeze</code> matches the pins.</div>
+</div>
+
+<div class="step">
+  <h3>Step 1.7: Start the database and check it from the host</h3>
+  <ul>
+    <li>Run <code>docker compose up -d db</code>.</li>
+    <li>If a local PostgreSQL already uses port 5432, stop it or change the host port in compose. The container port stays 5432.</li>
+    <li>Check health with <code>docker compose ps</code>. If it is not running, read <code>docker compose logs db</code>.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/><code>db</code> shows as running, and you can connect to it from the host using the Step 1.3 URL.</div>
+</div>
+
+<!-- PART 2 -->
+<h2>Part 2: Backend boots and answers over HTTP and Socket.IO</h2>
+<p>Goal: the server starts, answers a health check, and accepts a Socket.IO handshake.</p>
+
+<div class="step">
+  <h3>Step 2.1: Start the server with the correct target</h3>
+  <ul>
+    <li>Run uvicorn from the backend root with the target <code>app.main:app</code>. Keep that name: it refers to the combined Socket.IO and FastAPI app.</li>
+    <li>Use <code>--host 0.0.0.0</code> so phones on your Wi-Fi can reach the server later (Step 4.5).</li>
+    <li>Keep <code>--reload</code> while developing.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>The server reports it is listening on port 8000 with no errors.</div>
+</div>
+
+<div class="step">
+  <h3>Step 2.2: Verify the HTTP health route</h3>
+  <ul>
+    <li>Open <code>/health</code> in a browser.</li>
+    <li>Include the router from <code>app/router/players.py</code> in the app. It is defined but never included, so its routes are unreachable.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/><code>/health</code> returns <code>ok</code>, and the players route appears in the API docs at <code>/docs</code>.</div>
+</div>
+
+<div class="step">
+  <h3>Step 2.3: Verify the Socket.IO endpoint over plain HTTP</h3>
+  <ul>
+    <li>The handshake lives at <code>/socket.io/</code>. Request it in a browser with the protocol and transport parameters for polling (<code>EIO=4</code> and <code>transport=polling</code>).</li>
+    <li>A correct response starts with a digit and includes a session id. "Not found" means the mount is wrong.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>The handshake URL returns a Socket.IO open packet containing a session id.</div>
+</div>
+
+<div class="step">
+  <h3>Step 2.4: Replace print statements with logging</h3>
+  <ul>
+    <li>The connect and disconnect handlers use <code>print</code>. Switch to the standard <code>logging</code> module so output can be filtered by level later.</li>
+    <li>Log the session id, the disconnect reason, and the auth key names. Never log auth values.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>Connect and disconnect messages appear through the logger at INFO level.</div>
+</div>
+
+<!-- PART 3 -->
+<h2>Part 3: Database connection and migrations</h2>
+<p>Goal: the app reads and writes PostgreSQL, and Alembic manages the schema.</p>
+
+<div class="step">
+  <h3>Step 3.1: Add a database health route</h3>
+  <ul>
+    <li>Add a route such as <code>/health/db</code> that runs a trivial query through the session from <code>get_db</code>.</li>
+    <li>When the database is down, return a clear failure status and message, not an unhandled 500.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/><code>/health/db</code> returns OK while the container runs, and a clear failure after <code>docker compose stop db</code>.</div>
+</div>
+
+<div class="step">
+  <h3>Step 3.2: Decide sync or async database access (before writing models)</h3>
+  <ul>
+    <li>The engine is synchronous (<code>create_engine</code>), but Socket.IO handlers are <code>async</code>.</li>
+    <li><b>Recommendation:</b> keep the synchronous engine for now. Run database work from async handlers through a threadpool helper, and keep each call short. Switch to async SQLAlchemy only if you measure a problem.</li>
+    <li>Write the decision in one line in your notes so it is not reopened later.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>The decision is written down, and you know which helper socket handlers will call for database work.</div>
+</div>
+
+<div class="step">
+  <h3>Step 3.3: Connect Alembic to your settings and metadata</h3>
+  <ul>
+    <li>In <code>alembic/env.py</code>, set the target metadata to your declarative base's metadata. It is <code>None</code> now, so autogenerate sees no tables.</li>
+    <li>Read the database URL from your settings, not from a second copy in <code>alembic.ini</code>. One source of truth.</li>
+    <li>Import every model module before autogenerate runs, or its tables are silently skipped.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/><code>alembic current</code> runs without errors on the empty database.</div>
+</div>
+
+<div class="step">
+  <h3>Step 3.4: Create and apply the first migration</h3>
+  <ul>
+    <li>Create a first revision for one small table only. The full schema comes in Part 5.</li>
+    <li>Apply it with <code>alembic upgrade head</code>, then confirm the table in a SQL client (DBeaver, pgAdmin, or <code>docker compose exec db psql</code>).</li>
+    <li>Practice one downgrade and upgrade so you know rollback works before you need it.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>The table exists, <code>alembic downgrade -1</code> removes it, and <code>alembic upgrade head</code> recreates it.</div>
+</div>
+
+<!-- PART 4 -->
+<h2>Part 4: Frontend connects to backend (first socket handshake)</h2>
+<p>Goal: the browser opens a Socket.IO connection to the backend, and both sides show it.</p>
+
+<div class="step">
+  <h3>Step 4.1: Move the backend address into a frontend env variable</h3>
+  <ul>
+    <li><code>src/utils/socket.ts</code> hardcodes <code>http://localhost:8000</code>. Move it to an environment variable.</li>
+    <li>Vite exposes only variables starting with <code>VITE_</code>. The current <code>BACKEND_APP_URL</code> in the frontend <code>.env</code> is invisible to the browser, so rename it to <code>VITE_BACKEND_URL</code>.</li>
+    <li>Add a frontend <code>.env.example</code> with the same key and a placeholder.</li>
+    <li>Restart the Vite dev server after any <code>.env</code> change. Vite reads it only at startup.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>Changing <code>VITE_BACKEND_URL</code> and restarting Vite changes the address the socket uses.</div>
+</div>
+
+<div class="step">
+  <h3>Step 4.2: Decide the allowed origins</h3>
+  <ul>
+    <li>The Socket.IO server allows every origin (<code>*</code>). That is fine for the first test. Write down the list you will use: <code>http://localhost:5173</code>, and your PC's LAN address on port 5173 for phone testing.</li>
+    <li>Restrict the list before deploying (Part 8).</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>The exact origin list is written down, using your PC's current LAN IP.</div>
+</div>
+
+<div class="step">
+  <h3>Step 4.3: Turn the connection back on in the app</h3>
+  <ul>
+    <li><code>App.tsx</code> has the socket disconnected. Re-enable the connect call and the connect, disconnect, and connect-error listeners.</li>
+    <li>Make the unmount cleanup call disconnect, so React's development double-mount does not leave two sockets open.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>The browser console shows "Connected" with a socket id, and the backend logs a connect line for the same id.</div>
+</div>
+
+<div class="step">
+  <h3>Step 4.4: Add a ping event as the first end-to-end test</h3>
+  <ul>
+    <li>Backend: one handler, <code>client.ping</code>, that replies with <code>server.pong</code> and the server time. Use a Socket.IO acknowledgement so the client receives the reply directly.</li>
+    <li>Frontend: send one ping after connecting and log the round-trip time (a temporary log is fine).</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>The console prints a round-trip time and the backend logs the ping. Two-way traffic is proven.</div>
+</div>
+
+<div class="step">
+  <h3>Step 4.5: Test from a phone on the same Wi-Fi</h3>
+  <ul>
+    <li>Run the backend with <code>--host 0.0.0.0</code> (Step 2.1), and the Vite server with <code>--host</code> so it listens on the LAN.</li>
+    <li>Allow ports 8000 and 5173 through Windows Firewall for private networks.</li>
+    <li>Set <code>VITE_BACKEND_URL</code> to the LAN address. On a phone, <code>localhost</code> means the phone itself.</li>
+    <li>Add the LAN origin from Step 4.2.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>The phone loads the game page and the ping round-trip works.</div>
+</div>
+
+<div class="step">
+  <h3>Step 4.6: Test reconnect behavior</h3>
+  <ul>
+    <li>Stop the backend while the page is open. The frontend should show a disconnected state and retry on its own.</li>
+    <li>Start the backend again. The socket should reconnect with a new socket id.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>The frontend reconnects after a backend restart, without a page reload.</div>
+</div>
+
+<!-- PART 5 -->
+<h2>Part 5: Schema and architecture decisions (your design work)</h2>
+<p>Goal: decide the data model before writing more events. You design it. This section lists what you must decide so nothing is missed.</p>
+
+<div class="step">
+  <h3>Step 5.1: List the entities the game needs</h3>
+  <table>
+    <tr><th>Entity</th><th>Why it exists</th></tr>
+    <tr><td>Room</td><td>Code, host, status, settings (category, difficulty, max players), round end time</td></tr>
+    <tr><td>Player</td><td>Display name, guest identity, room membership, team, ready state</td></tr>
+    <tr><td>Round</td><td>Story, round number, phase timestamps, outcome</td></tr>
+    <tr><td>Scene card</td><td>The private prompt for one artist in one round</td></tr>
+    <tr><td>Drawing event or stroke</td><td>Each stroke, undo, and clear (matches the frontend event log)</td></tr>
+    <tr><td>Submission</td><td>An artist's final drawing for a round</td></tr>
+    <tr><td>Guess and score</td><td>Guessers' reconstructions and the points awarded</td></tr>
+    <tr><td>Story (AI output)</td><td>The generated story and scene split, kept for replay and debugging</td></tr>
+  </table>
+  <div class="done"><span class="label">Done when</span><br/>Each entity has a one-line purpose, and you can say which room it belongs to.</div>
+</div>
+
+<div class="step">
+  <h3>Step 5.2: Decide identity and ids</h3>
+  <ul>
+    <li>Decide how a guest is identified across reconnects. The frontend keeps one id per browser tab in <code>sessionStorage</code>. Decide whether the server issues the id on connect, or the client sends its own.</li>
+    <li>Decide id types: UUIDs everywhere, or integer keys internally with UUIDs for anything sent to clients.</li>
+    <li>Decide how room codes are generated and kept unique, and when old rooms expire.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>A written rule says where each id comes from and who may use it.</div>
+</div>
+
+<div class="step">
+  <h3>Step 5.3: Decide the source of truth for live game state</h3>
+  <ul>
+    <li>Decide which state lives in memory (phase, timers, connected players) and which goes to PostgreSQL (rooms, rounds, scores, history).</li>
+    <li>Decide whether writes happen immediately or in the background. The design documents prefer background writes, so gameplay never waits on the database.</li>
+    <li>Decide what is lost if the server restarts mid-round. A simple rule for development is acceptable.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>You can answer: "If the server restarts mid-round, what is lost and what is kept?"</div>
+</div>
+
+<div class="step">
+  <h3>Step 5.4: Decide how stroke data is stored</h3>
+  <ul>
+    <li>Option A: one row per stroke, with points stored as JSON. Simple, and matches the frontend's current format.</li>
+    <li>Option B: one row per drawing event (stroke, undo, clear) in an ordered event table. Easiest to replay and debug.</li>
+    <li>Decide how long the event log is kept, and whether it is kept after a round ends.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>You have chosen A, B, or a combination, and can justify it in two sentences.</div>
+</div>
+
+<div class="step">
+  <h3>Step 5.5: Write the schema diagram</h3>
+  <ul>
+    <li>Draw the tables and their relationships. Mark primary keys, foreign keys, and unique constraints.</li>
+    <li>Check each query you expect: "get a room with its players", "get the current round's scene cards", "list a room's drawing events in order". The schema must answer each one.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>Every expected query can be answered from the diagram without guessing.</div>
+</div>
+
+<div class="step">
+  <h3>Step 5.6: Decide the team and match model</h3>
+  <ul>
+    <li>Separate <b>team</b> (Team A and Team B, fixed for the whole match) from <b>role</b> (artist or guesser, changes every round). The current frontend stores only a role per player, so this is a schema change.</li>
+    <li>Decide the round count. The design documents use 6 rounds by default, so each team draws three times. The create-room form has no round count yet.</li>
+    <li>Decide the rule for uneven teams and for the minimum scene count (the documents raise 2 artists as a case to handle).</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>For a 5-player room, you can state who is on each team and who draws in rounds 1 and 2.</div>
+</div>
+
+<!-- PART 6 -->
+<h2>Part 6: Socket events, one at a time</h2>
+<p>Goal: build the game flow over Socket.IO in small steps. An event is finished only when the frontend can trigger it and see the result.</p>
+
+<div class="note"><b>Rules for every event:</b> (1) write its payload in the protocol doc first; (2) validate every field on the server and reject bad input with an error reply; (3) use an acknowledgement for requests that need an answer; (4) broadcast state changes to the room; (5) test from the browser before starting the next event.</div>
+
+<h3>Protocol document (do this first)</h3>
+<p>Create <code>docs/websocket-protocol.md</code> in the backend. For each event, list: name, direction (client to server, or server to clients), payload fields with types, the acknowledgement reply, and the error codes it can return. Use the envelope the frontend already sends for drawing events: <code>version</code>, <code>eventId</code>, <code>roomCode</code>, <code>playerId</code>, <code>sequence</code>, <code>sentAt</code>, plus the type-specific fields.</p>
+
+<h3>Event order</h3>
+<table>
+  <tr><th>#</th><th>Event (client to server)</th><th>Result sent to clients</th><th>Test from the frontend</th></tr>
+  <tr><td>6.1</td><td><code>room.create</code> (name, settings)</td><td>Acknowledgement with room code; <code>room.state</code> to the creator</td><td>Create a lobby; a code appears</td></tr>
+  <tr><td>6.2</td><td><code>room.join</code> (code, name)</td><td>Acknowledgement; <code>room.state</code> to everyone in the room</td><td>Join from a second browser; both lobbies update</td></tr>
+  <tr><td>6.3</td><td><code>room.leave</code>, plus automatic leave on disconnect</td><td><code>room.state</code>; host transfers if the host leaves</td><td>Close one tab; the other shows the player leave</td></tr>
+  <tr><td>6.4</td><td><code>player.ready</code> (toggle)</td><td><code>room.state</code></td><td>Ready toggles on both screens</td></tr>
+  <tr><td>6.5</td><td><code>player.setTeam</code> (artists or guessers)</td><td><code>room.state</code>; rejected while a round runs</td><td>Switch teams in the lobby</td></tr>
+  <tr><td>6.6</td><td><code>game.start</code> (host only)</td><td><code>room.state</code> to all; <code>scene.assigned</code> to each artist only</td><td>Start a game; each artist sees only their own card</td></tr>
+  <tr><td>6.7</td><td><code>drawing.stroke</code>, <code>drawing.undo</code>, <code>drawing.clear</code> (artists only)</td><td>Same event broadcast to the room after validation</td><td>Draw in one browser; a second browser sees it live</td></tr>
+  <tr><td>6.8</td><td><code>drawing.submit</code></td><td>Artist locked in; <code>room.state</code>; round ends when all artists submit or time runs out</td><td>Submit from each artist; the gallery opens</td></tr>
+  <tr><td>6.9</td><td><code>game.reset</code> (host only)</td><td><code>room.state</code>; back to the lobby</td><td>"Play another round" returns everyone to the lobby</td></tr>
+</table>
+
+<h3>Checks to add to each event</h3>
+<ul>
+  <li><b>Authorization:</b> the sender is in the room and has the right role (host, artist).</li>
+  <li><b>Phase:</b> the event is allowed in the current phase (for example, no strokes outside the drawing phase).</li>
+  <li><b>Order:</b> <code>sequence</code> increases per player; duplicates are dropped by <code>eventId</code>.</li>
+  <li><b>Size:</b> reject strokes with too many points or too large a payload.</li>
+</ul>
+
+<h3>Mapping to the frontend (so Part 7 is simple)</h3>
+<table>
+  <tr><th>Frontend function (roomService.ts)</th><th>Socket event</th></tr>
+  <tr><td><code>createRoom</code></td><td><code>room.create</code></td></tr>
+  <tr><td><code>joinRoom</code></td><td><code>room.join</code></td></tr>
+  <tr><td><code>getRoom</code> / <code>subscribeToRooms</code></td><td><code>room.state</code>, pushed by the server (no polling)</td></tr>
+  <tr><td><code>setReady</code></td><td><code>player.ready</code></td></tr>
+  <tr><td><code>setTeam</code></td><td><code>player.setTeam</code></td></tr>
+  <tr><td><code>startGame</code></td><td><code>game.start</code></td></tr>
+  <tr><td><code>submitDrawing</code></td><td><code>drawing.submit</code></td></tr>
+  <tr><td><code>finishRound</code></td><td>Removed from the client; the server ends the round</td></tr>
+  <tr><td><code>resetLobby</code></td><td><code>game.reset</code></td></tr>
+  <tr><td><code>leaveRoom</code></td><td><code>room.leave</code></td></tr>
+  <tr><td><code>publishDrawingEvent</code></td><td><code>drawing.stroke</code>, <code>drawing.undo</code>, <code>drawing.clear</code></td></tr>
+</table>
+
+<!-- PART 7 -->
+<h2>Part 7: Replace the frontend's local stand-in with the real socket client</h2>
+<p>Goal: the screens keep working, but the data now comes from the server.</p>
+
+<div class="step">
+  <h3>Step 7.1: Create one socket client module</h3>
+  <ul>
+    <li>Create a single module that owns the socket. It exposes <code>connect</code>, <code>disconnect</code>, and promise-returning <code>emit</code> helpers, plus a way to subscribe to incoming events.</li>
+    <li>Only this module imports <code>socket.io-client</code>. Everything else calls it.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>Only one file in <code>src/</code> imports <code>socket.io-client</code>.</div>
+</div>
+
+<div class="step">
+  <h3>Step 7.2: Swap the room functions one at a time</h3>
+  <ul>
+    <li>Keep each function's name and signature in <code>roomService.ts</code>. Change only the body, so it calls the socket client.</li>
+    <li>Swap in the order of Part 6. After each swap, test the screen that uses it before moving on.</li>
+    <li>Map server error replies to the same messages the screens show today.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>Each swapped function works in two browsers before you move to the next.</div>
+</div>
+
+<div class="step">
+  <h3>Step 7.3: Swap the drawing log to the socket</h3>
+  <ul>
+    <li>Keep the local event log as a replay cache, but send each event to the server as it happens.</li>
+    <li>Subscribe to incoming <code>drawing.*</code> events and feed them into the same replay code.</li>
+    <li>Handle events that arrive out of order or twice, using <code>eventId</code> and <code>sequence</code>.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>Strokes drawn on one device appear on another in real time, and reloading restores the current canvases.</div>
+</div>
+
+<div class="step">
+  <h3>Step 7.4: Remove the client-side round end logic</h3>
+  <ul>
+    <li>In <code>DrawingScreen.tsx</code>, remove the timers that call <code>finishRound</code>. The server decides when a round ends and pushes the new state.</li>
+    <li>Keep only the countdown display, driven by the server's deadline.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>Both browsers move to the gallery at the same moment, as decided by the server.</div>
+</div>
+
+<div class="step">
+  <h3>Step 7.5: Decide what happens to the local stand-in (optional)</h3>
+  <ul>
+    <li>Keep it behind a flag if you want offline development, or delete it once the socket version is stable.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>You have decided: keep behind a flag, or delete.</div>
+</div>
+
+<!-- PART 8 -->
+<h2>Part 8: AI story and scene generation</h2>
+<p>Goal: before each round, the server asks an AI for a story and one scene card per artist, validates the result, and stores it. The AI never sees players, scores, or drawings, and it never runs while people are drawing.</p>
+
+<div class="step">
+  <h3>Step 8.1: Define the AI output contract</h3>
+  <ul>
+    <li>Each round needs one structured response: the story (3 to 8 sentences, self-contained, funny, family-safe), one scene card per artist, and for each scene a short list of key story beats.</li>
+    <li>The key beats are what scoring (Part 9) matches guesses against. Ask for them now, so scoring never has to guess what the story was about.</li>
+    <li>Parse the response into a fixed structure. Reject any response that does not match it, and never pass raw model text to clients.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>You have a written example response for 3 artists, and the server rejects a malformed one.</div>
+</div>
+
+<div class="step">
+  <h3>Step 8.2: Choose a provider and keep it swappable</h3>
+  <ul>
+    <li>Put the provider behind one interface, for example <code>generate_round(category, difficulty, artist_count)</code>. Build one concrete provider first. The design documents require the rest of the code to not depend on which one it is.</li>
+    <li>Keys live only in the backend's <code>.env</code> (provider name, API key, model name). Add the names to <code>.env.example</code>. Never send them to the frontend.</li>
+    <li>A small, fast model is usually enough for story and scene generation. Upgrade only if output quality is poor.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>A one-off test calls the provider with a fixed category and gets back a parsed response.</div>
+</div>
+
+<div class="step">
+  <h3>Step 8.3: Set the scene count rules</h3>
+  <ul>
+    <li>The number of scenes equals the number of artists. Decide a minimum (the phase plan suggests about 3, so a 2-artist round asks for a longer story) and a maximum (about 8, by splitting large teams into parallel sub-stories).</li>
+    <li>Write the rule in your notes, and make the limits constants rather than numbers scattered through the code.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>The rule is written, and a test shows it works for 2, 3, and 8 artists.</div>
+</div>
+
+<div class="step">
+  <h3>Step 8.4: Write the scene validator (in code, not in the prompt)</h3>
+  <ul>
+    <li>Do not trust the model to follow the scene rules. Check them in code:
+      <ul>
+        <li>The scene is a visual instruction (for example, it starts with "Draw" or describes a subject doing something).</li>
+        <li>No causal or sequencing words such as because, before, after, then, however, accidentally, suddenly, later.</li>
+        <li>Not a single word or abstract connector: enforce a minimum word count.</li>
+        <li>No full spoilers: a scene must not repeat the story's final beat.</li>
+        <li>Balance: flag a round where one scene carries far more story detail (beat count or word count) than the others.</li>
+      </ul>
+    </li>
+    <li>If a check fails, regenerate. Set a retry limit (2 or 3 attempts).</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>The validator rejects the bad examples from the design document and accepts the good ones.</div>
+</div>
+
+<div class="step">
+  <h3>Step 8.5: Generate before drawing, not during it</h3>
+  <ul>
+    <li>When the host starts the game, move to a GENERATING state and broadcast the room state without any story content.</li>
+    <li>Generate in the background so the socket loop keeps responding. Then move to DISTRIBUTING (send each artist their private <code>scene.assigned</code>) and then DRAWING, with the server-set deadline.</li>
+    <li>Decide whether to pre-generate the next round during the current round's guessing and scoring. That removes the wait between rounds. Document the decision.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>Starting a game shows "Generating story" to everyone, and the drawing timer starts only after the content is ready.</div>
+</div>
+
+<div class="step">
+  <h3>Step 8.6: Plan for AI failures</h3>
+  <ul>
+    <li>On a timeout or error, retry with a short backoff (2 attempts).</li>
+    <li>If it still fails, use a fallback round from a local file of prewritten stories, in the same structure. The game must keep moving.</li>
+    <li>Flag fallback rounds in the room state so the host knows, and log every fallback.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>With a wrong API key or no network, a game still reaches DRAWING using fallback content.</div>
+</div>
+
+<div class="step">
+  <h3>Step 8.7: Store the round content</h3>
+  <ul>
+    <li>Save the story, the scene cards, the key beats, the provider, the model name, the prompt version, the time, and whether it was a fallback. You need this for replay and debugging.</li>
+    <li>The story stays secret until the reveal (Part 9). Store it, but never send it before then.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>A finished round's story and scenes can be read back from the database.</div>
+</div>
+
+<div class="step">
+  <h3>Step 8.8: Update the frontend</h3>
+  <ul>
+    <li>Show a "Generating story" state between the lobby and the drawing screen.</li>
+    <li>Take scene cards from <code>scene.assigned</code>, not the placeholder list in <code>src/constants/game.ts</code>. Remove that list once nothing uses it.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>Each round shows AI-generated scene cards, and they differ between rounds.</div>
+</div>
+
+<h2>Part 9: Guessing, reveal and scoring</h2>
+<p>Goal: after drawing, guessers write their reconstruction, the story is revealed, and both teams are scored by the server.</p>
+
+<div class="step">
+  <h3>Step 9.1: Decide the scoring rules first</h3>
+  <div class="note"><b>The two design documents disagree.</b> Version 0.1 scores semantic similarity, speed, scene clarity, and a balance bonus. Version 0.2 scores artists by community votes. The phase plan says the first version uses keyword matching only. Pick one set before you write any scoring code.</div>
+  <p><b>Recommended first version:</b></p>
+  <table>
+    <tr><th>Team</th><th>Points for</th><th>How it is measured (first version)</th></tr>
+    <tr><td>Guessers</td><td>Understanding the story</td><td>Share of the story's key beats found in the team's guess, 0 to 100</td></tr>
+    <tr><td>Guessers</td><td>Speed (optional)</td><td>Small bonus for the first team to submit</td></tr>
+    <tr><td>Artists</td><td>Communicating the story</td><td>The opposing team's guess score (same measure), 0 to 100</td></tr>
+    <tr><td>Artists</td><td>Self-reconstruction (optional)</td><td>Artists guess the whole story too, since they saw only their scene</td></tr>
+    <tr><td>Artists</td><td>Helpful-panel votes (later)</td><td>Bonus per vote, from Step 9.6</td></tr>
+  </table>
+  <ul>
+    <li>Make every weight a named constant, so you can tune it without touching logic.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>You have written the final weights and chosen whether artists are scored by the opposing guess (recommended) or by votes.</div>
+</div>
+
+<div class="step">
+  <h3>Step 9.2: Accept guesses</h3>
+  <ul>
+    <li>Add the <code>guess.submit</code> event (text only). Only guessers may send it, and only during the GUESSING phase.</li>
+    <li>Validate the text: not empty, a length limit, and rejected once the deadline passes.</li>
+    <li>Decide whether each guesser submits their own guess and the team score uses the best one, or whether each team submits one guess (for example, the latest before the deadline). Write the rule down.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>A valid guess is stored, empty and late guesses are rejected, and a duplicate is handled by your rule.</div>
+</div>
+
+<div class="step">
+  <h3>Step 9.3: End guessing and reveal the round</h3>
+  <ul>
+    <li>End the phase when the timer runs out or every guesser has submitted. Move to REVEAL and broadcast the story, the scene cards, the scene order, and all drawings.</li>
+    <li>Decide who may see what in each phase. Use this as the rule your server enforces:</li>
+  </ul>
+  <table>
+    <tr><th>Phase</th><th>Artists see</th><th>Guessers see</th></tr>
+    <tr><td>GENERATING / DISTRIBUTING</td><td>Their own scene card only</td><td>Nothing about the story</td></tr>
+    <tr><td>DRAWING</td><td>Own card, teammates' drawings as they arrive</td><td>Artists' drawings as they arrive (no cards)</td></tr>
+    <tr><td>GUESSING</td><td>Drawings; their own guess</td><td>Drawings; their team's guess</td></tr>
+    <tr><td>REVEAL onward</td><td>Everything</td><td>Everything</td></tr>
+  </table>
+  <div class="done"><span class="label">Done when</span><br/>All clients get the reveal at the same moment, and an inspection of socket traffic shows the story was never sent earlier.</div>
+</div>
+
+<div class="step">
+  <h3>Step 9.4: Score guesses on the server</h3>
+  <ul>
+    <li>Normalize text (lowercase, remove punctuation, match simple word forms). Count how many of the story's key beats appear in the guess, then convert to a 0 to 100 score.</li>
+    <li>Store each guess's score and which beats matched. The reveal screen can then show why a guess scored what it did.</li>
+    <li>Keep this as a pure function that takes text and beats, so you can test it.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>A unit test with a fixed story and guess returns the expected score and matched beats.</div>
+</div>
+
+<div class="step">
+  <h3>Step 9.5: Score the drawings and the rest of the round</h3>
+  <ul>
+    <li>Compute artist points from the opposing guess score (Step 9.1), plus any speed or self-reconstruction bonuses you chose.</li>
+    <li>Compute all points in one pure function that returns a per-player and per-team breakdown.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>Unit tests with fixed inputs produce the expected breakdown for both teams.</div>
+</div>
+
+<div class="step">
+  <h3>Step 9.6: Add community votes (optional, after the first version works)</h3>
+  <ul>
+    <li>After the reveal, each player votes once for the most helpful drawing, and never for their own.</li>
+    <li>The server counts votes and adds a bonus to each artist per vote. Fun awards do not affect points.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>One vote per player is enforced, self-votes are rejected, and vote points appear in the round score.</div>
+</div>
+
+<div class="step">
+  <h3>Step 9.7: Broadcast results and update the frontend</h3>
+  <ul>
+    <li>Send <code>round.reveal</code> with the reveal content, then <code>round.scored</code> with the breakdown.</li>
+    <li>Frontend: a reveal screen showing the comic strip in story order (drawing plus sentence), the guesses with matched beats, and the round score per team.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>Every client sees the same reveal and the same score breakdown.</div>
+</div>
+
+<h2>Part 10: Round switching and match end</h2>
+<p>Goal: after scoring, roles swap, the next round starts, and the match ends with a winner.</p>
+
+<div class="step">
+  <h3>Step 10.1: Write the round state machine</h3>
+  <ul>
+    <li>Full loop: LOBBY, GENERATING, DISTRIBUTING, DRAWING, GUESSING, REVEAL, SCORING, RESULTS, then either the next round's GENERATING or FINISHED.</li>
+    <li>Write the allowed transitions as a table in the protocol doc. Any other transition is rejected.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>A unit test tries an illegal move (for example, DRAWING straight to SCORING) and it is rejected.</div>
+</div>
+
+<div class="step">
+  <h3>Step 10.2: Swap roles between rounds</h3>
+  <ul>
+    <li>Each round, one team draws and the other guesses. Next round they switch. Compute roles from the team and the round number, rather than storing them separately, to avoid drift.</li>
+    <li>Decide the rule for uneven teams, for example rotating one player per round so everyone draws at least once.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>A written 4-player table shows who draws in each round, and each player draws equally often.</div>
+</div>
+
+<div class="step">
+  <h3>Step 10.3: Set the round count and match length</h3>
+  <ul>
+    <li>Default is 6 rounds, so each team draws 3 times. The count must be even so both teams draw equally. Enforce this on the server.</li>
+    <li>Add the round count to the create-room settings and the frontend form.</li>
+    <li>Optional: escalate difficulty across rounds (Easy, then Medium, then Hard), as the design document suggests.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>A 6-round match runs from start to finish, and the round counter shows on every screen.</div>
+</div>
+
+<div class="step">
+  <h3>Step 10.4: Decide the winner and tie-breaks</h3>
+  <ul>
+    <li>At FINISHED, the winner is the team with the higher cumulative score. Show the full leaderboard.</li>
+    <li>Tie-break options from the design document: a sudden-death round (one short scene each), then total scene clarity bonus, then co-winners in casual mode.</li>
+    <li>Recommended: co-winners first (simplest), and add sudden death later.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>The final screen shows both teams with a winner or co-winners, and a forced tie triggers your chosen rule.</div>
+</div>
+
+<div class="step">
+  <h3>Step 10.5: Allow a second match in the same room</h3>
+  <ul>
+    <li>When the host chooses "play again", start a new match with the same players and zero scores. Keep the first match's history in the database.</li>
+    <li>This builds on the <code>game.reset</code> event from Part 6.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>The second match starts at zero, and the first match is still in the database.</div>
+</div>
+
+<div class="step">
+  <h3>Step 10.6: Update the frontend for teams and roles</h3>
+  <ul>
+    <li>The lobby shows Team A and Team B, not only artists and guessers. Each round, show the player's role (Artist or Guesser) and the round counter.</li>
+    <li>Add a team scoreboard and a final leaderboard screen.</li>
+  </ul>
+  <div class="done"><span class="label">Done when</span><br/>A full match plays in four browsers, and every screen shows the correct team and role for the current round.</div>
+</div>
+
+<h3>New events for Parts 8 to 10</h3>
+<table>
+  <tr><th>Event</th><th>Direction</th><th>Purpose</th></tr>
+  <tr><td><code>round.generating</code></td><td>Server to clients</td><td>Content is being prepared (no story included)</td></tr>
+  <tr><td><code>scene.assigned</code></td><td>Server to one artist</td><td>Private scene card (already in Part 6)</td></tr>
+  <tr><td><code>guess.submit</code></td><td>Guesser to server</td><td>Text reconstruction of the story</td></tr>
+  <tr><td><code>round.reveal</code></td><td>Server to clients</td><td>Story, scene order, and all drawings</td></tr>
+  <tr><td><code>round.scored</code></td><td>Server to clients</td><td>Per-player and per-team score breakdown</td></tr>
+  <tr><td><code>match.state</code></td><td>Server to clients</td><td>Round number, team scores, roles for the round</td></tr>
+  <tr><td><code>match.finished</code></td><td>Server to clients</td><td>Final leaderboard and winner or co-winners</td></tr>
+</table>
+
+<!-- PART 11 -->
+<h2>Part 11: Later phases</h2>
+<p>Start these only after Parts 1&ndash;10 work end to end. Each one gets its own plan later.</p>
+<table>
+  <tr><th>Phase</th><th>What it adds</th><th>Start when</th></tr>
+  <tr><td>Reliability</td><td>Reconnect and resume using <code>sequence</code>, heartbeats, disconnect rules, idle room cleanup</td><td>Two-device testing shows drops</td></tr>
+  <tr><td>Persistence and history</td><td>Save rounds and scores to PostgreSQL in the background</td><td>Scoring works</td></tr>
+  <tr><td>Deployment</td><td>Restrict origins, secure WebSocket (wss://) behind a reverse proxy, production env handling, secrets</td><td>Gameplay is stable</td></tr>
+</table>
+
+<!-- APPENDIX A -->
+<h2>Appendix A: Issues found in the current files</h2>
+<table>
+  <tr><th>#</th><th>Where</th><th>Issue</th><th>Fixed in</th></tr>
+  <tr><td>1</td><td><code>docker-compose.yml</code></td><td>Backend service has no <code>DATABASE_URL</code></td><td>Step 1.4</td></tr>
+  <tr><td>2</td><td><code>app/db/database.py</code></td><td>Reads <code>.env</code> relative to the current folder; old <code>class Config</code> style</td><td>Step 1.5</td></tr>
+  <tr><td>3</td><td><code>Dockerfile</code></td><td>Copies only <code>./app</code>; Alembic files sit outside it</td><td>Steps 1.4 and 3.3 (decide whether migrations run in the container)</td></tr>
+  <tr><td>4</td><td><code>requirements.txt</code></td><td>Appears to be saved as UTF-16</td><td>Step 1.6</td></tr>
+  <tr><td>5</td><td><code>app/main.py</code></td><td>The players router is never included</td><td>Step 2.2</td></tr>
+  <tr><td>6</td><td><code>alembic/env.py</code></td><td><code>target_metadata = None</code>, so autogenerate sees no tables</td><td>Step 3.3</td></tr>
+  <tr><td>7</td><td><code>app/util/socketio.py</code></td><td>Origins set to <code>*</code>; handlers use <code>print</code></td><td>Steps 2.4 and 4.2</td></tr>
+  <tr><td>8</td><td>Frontend <code>src/utils/socket.ts</code></td><td>Backend URL hardcoded to <code>localhost:8000</code></td><td>Step 4.1</td></tr>
+  <tr><td>9</td><td>Frontend <code>.env</code></td><td><code>BACKEND_APP_URL</code> is not exposed to the browser (needs a <code>VITE_</code> prefix)</td><td>Step 4.1</td></tr>
+  <tr><td>10</td><td>Frontend <code>App.tsx</code></td><td>Socket connection is not active</td><td>Step 4.3</td></tr>
+  <tr><td>11</td><td>Backend git status</td><td>Many older files show as deleted and uncommitted</td><td>Decide before Part 1 is complete: commit the new layout or restore the old files</td></tr>
+  <tr><td>12</td><td>Design documents</td><td>Version 0.1 and version 0.2 of the GDD give different scoring rules</td><td>Step 9.1 (pick one set)</td></tr>
+  <tr><td>13</td><td>Frontend <code>roomService.ts</code></td><td>Stores one role per player; no team concept (Team A and Team B) and no round count</td><td>Steps 5.6 and 10.3</td></tr>
+  <tr><td>14</td><td>Frontend <code>src/constants/game.ts</code></td><td>Placeholder scene cards are used instead of AI-generated ones</td><td>Step 8.8</td></tr>
+</table>
+
+<!-- APPENDIX B -->
+<h2>Appendix B: Checkpoint summary</h2>
+<table>
+  <tr><th>Checkpoint</th><th>You have reached it when</th></tr>
+  <tr><td>C1: Environment</td><td>Steps 1.1&ndash;1.7 pass; a fresh venv and the Docker database both work</td></tr>
+  <tr><td>C2: Backend up</td><td>Steps 2.1&ndash;2.4 pass; <code>/health</code> and the Socket.IO handshake respond</td></tr>
+  <tr><td>C3: Database up</td><td>Steps 3.1&ndash;3.4 pass; the first migration applies and rolls back</td></tr>
+  <tr><td>C4: Frontend connected</td><td>Steps 4.1&ndash;4.6 pass; ping works from a laptop and a phone</td></tr>
+  <tr><td>C5: Design settled</td><td>Steps 5.1&ndash;5.5 are written down, and the diagram answers every expected query</td></tr>
+  <tr><td>C6: Lobby over sockets</td><td>Events 6.1&ndash;6.5 pass in two browsers</td></tr>
+  <tr><td>C7: Round over sockets</td><td>Events 6.6&ndash;6.9 pass; the server ends the round</td></tr>
+  <tr><td>C8: Frontend fully live</td><td>Part 7 passes; the local stand-in is no longer needed for the main flow</td></tr>
+  <tr><td>C9: AI content</td><td>Steps 8.1&ndash;8.8 pass; each round has validated AI scenes, and a fallback works when the provider fails</td></tr>
+  <tr><td>C10: Scoring</td><td>Steps 9.1&ndash;9.7 pass; guesses and drawings are scored by the server and shown at reveal</td></tr>
+  <tr><td>C11: Full match</td><td>Steps 10.1&ndash;10.6 pass; a 6-round match with role swaps ends with a leaderboard</td></tr>
+</table>
+
+</body>
+</html>
