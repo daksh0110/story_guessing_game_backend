@@ -1,80 +1,156 @@
 # =========================
+
 # Python
-# =========================
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
 
 # =========================
-# Virtual Environment
-# =========================
+
+**pycache**/
+*.py[cod]
+*$py.class
+
+# Python virtual environments
+
 .venv/
 venv/
 env/
 ENV/
 
+# Distribution / packaging
+
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Coverage
+
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+
+# Type checkers / linters
+
+.mypy_cache/
+.pyre/
+.ruff_cache/
+
 # =========================
-# Environment Variables
+
+# FastAPI / Application
+
 # =========================
+
+# Environment variables / secrets
+
 .env
 .env.*
 !.env.example
 
+# Local application files
+
+*.log
+logs/
+
 # =========================
-# IDE / Editors
+
+# Alembic
+
 # =========================
+
+# Usually DO NOT ignore alembic migration files.
+
+# Keep migrations committed to Git.
+
+# =========================
+
+# PostgreSQL
+
+# =========================
+
+# Local PostgreSQL data directories
+
+postgres_data/
+postgresql_data/
+
+# PostgreSQL dumps
+
+*.sql
+*.sql.gz
+*.dump
+
+# =========================
+
+# Docker
+
+# =========================
+
+# Docker volumes / local data
+
+.docker/
+docker-data/
+docker-volumes/
+
+# Docker Compose override files
+
+docker-compose.override.yml
+
+# =========================
+
+# IDEs / Editors
+
+# =========================
+
+# VS Code
+
 .vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# PyCharm / IntelliJ
+
 .idea/
 
-# =========================
-# OS files
-# =========================
+# Vim
+
+*.swp
+*.swo
+
+# macOS
+
 .DS_Store
+
+# Windows
+
 Thumbs.db
-desktop.ini
+Desktop.ini
 
 # =========================
-# Testing / Coverage
-# =========================
-.pytest_cache/
-.coverage
-.coverage.*
-htmlcov/
+
+# Environment / OS
 
 # =========================
-# Type checking / Linters
-# =========================
-.mypy_cache/
-.ruff_cache/
-.pyright/
+
+*.local
 
 # =========================
-# Build / Distribution
-# =========================
-build/
-dist/
-*.egg-info/
 
-# =========================
-# Logs
-# =========================
-*.log
-
-# =========================
 # Jupyter
+
 # =========================
+
 .ipynb_checkpoints/
 
 # =========================
-# Local database files
-# =========================
-*.sqlite
-*.sqlite3
-*.db
+
+# Temporary files
 
 # =========================
-# Temporary files
-# =========================
+
 *.tmp
 *.temp
+*.bak
+*~
+EOF

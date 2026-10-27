@@ -1,78 +1,56 @@
-# Story Guessing Game Backend
+# ⚙️ Story Guessing Game - Backend
 
-A FastAPI backend for a story guessing game, built with Python and managed via `uv`.
+Backend service powered by **FastAPI**, **python-socketio**, **SQLAlchemy**, and **PostgreSQL**.
 
-## Project structure
+---
 
-```text
-story_guessing_game_backend/
-├── .env
-├── .python-version
-├── app/
-│   ├── __init__.py
-│   ├── db.py
-│   ├── main.py
-│   ├── models/
-│   │   ├── __init__.py
-│   │   └── user.py
-│   └── routers/
-│       └── __init__.py
-├── pyproject.toml
-├── README.md
-├── uv.lock
-└── .venv/
-```
+## 🚀 Running with Docker (Recommended)
 
-## Prerequisites
+1. Copy environment template:
+   ```bash
+   cp .env.example .env
+   ```
+2. Start the database and backend:
+   ```bash
+   docker compose up -d
+   ```
+3. Check container status:
+   ```bash
+   docker compose ps
+   ```
+4. Access endpoints:
+   - **API Root**: `http://localhost:8000/`
+   - **Health Check**: `http://localhost:8000/health`
+   - **Swagger Docs**: `http://localhost:8000/docs`
+   - **Adminer DB UI**: `http://localhost:8080/`
 
-- Python 3.14+
-- `uv` installed
-- PostgreSQL running locally
+---
 
-## Setup
+## 🐍 Running Locally (Without Docker)
 
-1. Clone the project.
-2. Create or update your `.env` file:
+### Prerequisites
+- Python 3.10+
+- PostgreSQL server running on `localhost:5432`
 
-```env
-DATABASE_URL=postgresql+psycopg://postgres:1234@localhost:5432/story-game
-```
-
-3. Install dependencies:
-
+### Setup
 ```bash
-uv sync
+# 1. Virtual Environment
+python -m venv venv
+# Windows:
+.\venv\Scripts\activate
+# Linux/macOS:
+source venv/bin/activate
+
+# 2. Dependencies
+pip install -r requirements.txt
+
+# 3. Environment configuration
+# Ensure DATABASE_URL in .env points to your local database:
+# DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/story_guessing_game
+
+# 4. Migrations
+alembic upgrade head
+
+# 5. Start Server
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
-
-## Create database tables
-
-Run this once after setting up PostgreSQL and your `DATABASE_URL`:
-
-```bash
-uv run python create_tables.py
-```
-
-This script creates the database tables from the SQLAlchemy models.
-
-## Run the app
-
-```bash
-uv run uvicorn app.main:app --reload
-```
-
-Then open:
-
-- http://127.0.0.1:8000
-- http://127.0.0.1:8000/docs
-
-## Default endpoints
-
-- `GET /` - health check / welcome route
-- `GET /health` - status endpoint
-- `GET /docs` - Swagger UI documentation
-
-## Notes
-
-- The app package is the main backend entry point.
-- The database connection is configured through the `DATABASE_URL` environment variable.
-- You can add routers, services, and schemas under the `app/` package as the project grows.
