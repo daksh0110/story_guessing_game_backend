@@ -72,7 +72,7 @@ async def disconnect(sid, reason):
         logger.error("Error during disconnect cleanup: %s", exc, exc_info=True)
 
 
-@sio.on("client.ping")
+@sio.event(name="client.ping")
 async def handle_ping(sid, data):
     logger.info("Ping received: sid=%s, data=%s", sid, data)
     return {
@@ -81,7 +81,7 @@ async def handle_ping(sid, data):
     }
 
 
-@sio.on("room.join")
+@sio.event(name="room.join")
 async def handle_room_join(sid, data):
     """Socket event for joining a room channel and linking session socket ID."""
     logger.info("room.join received from sid=%s with data=%s", sid, data)
@@ -137,7 +137,7 @@ async def handle_room_join(sid, data):
     }
 
 
-@sio.on("player.associate")
+@sio.event(name="player.associate")
 async def handle_player_associate(sid, data):
     """Associate a player record with this socket ID."""
     if not isinstance(data, dict) or not data.get("player_id"):
