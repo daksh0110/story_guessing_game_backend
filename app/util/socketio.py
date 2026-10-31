@@ -41,13 +41,13 @@ async def emit_to_room(room_code: str, event: str, data: dict):
         logger.warning("Failed emitting %s to room %s: %s", event, room_code, exc)
 
 
-@sio.event
+@sio.on
 async def connect(sid, environ, auth):
     auth_keys = list(auth.keys()) if isinstance(auth, dict) else []
     logger.info("Client connected: sid=%s, auth_keys=%s", sid, auth_keys)
 
 
-@sio.event
+@sio.on
 async def disconnect(sid, reason):
     logger.info("Client disconnected: sid=%s, reason=%s", sid, reason)
     try:
@@ -72,7 +72,7 @@ async def disconnect(sid, reason):
         logger.error("Error during disconnect cleanup: %s", exc, exc_info=True)
 
 
-@sio.event(name="client.ping")
+@sio.on("client.ping")
 async def handle_ping(sid, data):
     logger.info("Ping received: sid=%s, data=%s", sid, data)
     return {
@@ -81,7 +81,7 @@ async def handle_ping(sid, data):
     }
 
 
-@sio.event(name="room.join")
+@sio.on("room.join")
 async def handle_room_join(sid, data):
     """Socket event for joining a room channel and linking session socket ID."""
     logger.info("room.join received from sid=%s with data=%s", sid, data)
@@ -137,7 +137,7 @@ async def handle_room_join(sid, data):
     }
 
 
-@sio.event(name="player.associate")
+@sio.on("player.associate")
 async def handle_player_associate(sid, data):
     """Associate a player record with this socket ID."""
     if not isinstance(data, dict) or not data.get("player_id"):
